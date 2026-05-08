@@ -1,0 +1,33 @@
+# Flutter
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/build/
+app/.packages
+app/pubspec.lock
+
+# Android
+app/android/.gradle/
+app/android/local.properties
+app/android/key.properties
+app/android/app/google-services.json
+
+# iOS
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/flutter_export_environment.sh
+app/ios/.symlinks/
+
+# Node.js backend
+backend/node_modules/
+backend/uploads/
+backend/.env
+
+# OS files
+.DS_Store
+*.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
