@@ -1,0 +1,11 @@
+{
+  "name": "mathkraft",
+  "version": "1.0.0",
+  "description": "MathKraft Olympiad Platform",
+  "scripts": {
+    "build": "cd backend && npm install",
+    "start": "cd backend && npm start",
+    "dev": "cd backend && npm run dev",
+    "db:migrate": "cd backend && npm run db:migrate"
+  }
+}
