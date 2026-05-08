@@ -122,6 +122,23 @@ const createTables = async () => {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS question_papers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title VARCHAR(255) NOT NULL,
+        file_name VARCHAR(255),
+        file_url VARCHAR(500),
+        file_size_kb INTEGER,
+        pages INTEGER,
+        teacher_id UUID REFERENCES users(id),
+        questions_extracted INTEGER DEFAULT 0,
+        raw_text TEXT,
+        parsed_questions JSONB,
+        exam_id UUID REFERENCES exams(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
     await client.query('COMMIT');
     console.log('All tables created successfully');
   } catch (err) {
