@@ -138,7 +138,7 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
       } else {
         // ── Add mode: use multipart POST /questions ──
         final token = await ApiService.getToken();
-        final req = http.MultipartRequest('POST', Uri.parse('http://10.0.2.2:3000/api/questions'));
+        final req = http.MultipartRequest('POST', Uri.parse('https://mathkraft.onrender.com/api/questions'));
         req.headers['Authorization'] = 'Bearer $token';
 
         req.fields['exam_id'] = widget.examId;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-const String baseUrl = 'http://10.0.2.2:3000/api';
+const String baseUrl = 'https://mathkraft.onrender.com/api';
+const String baseHost = 'https://mathkraft.onrender.com';
 
 const Color primaryColor = Color(0xFF1A237E);
 const Color accentColor = Color(0xFFFF6F00);

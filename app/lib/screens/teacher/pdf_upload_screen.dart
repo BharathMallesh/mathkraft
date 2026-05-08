@@ -67,7 +67,7 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
 
     try {
       final token = await ApiService.getToken();
-      final req = http.MultipartRequest('POST', Uri.parse('http://10.0.2.2:3000/api/pdf/parse'));
+      final req = http.MultipartRequest('POST', Uri.parse('https://mathkraft.onrender.com/api/pdf/parse'));
       req.headers['Authorization'] = 'Bearer $token';
       req.files.add(await http.MultipartFile.fromPath('pdf', _selectedPdf!.path));
 

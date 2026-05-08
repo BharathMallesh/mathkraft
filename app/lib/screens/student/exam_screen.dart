@@ -262,7 +262,7 @@ class _QuestionBody extends StatelessWidget {
           if (question['image_url'] != null) ...[
             const SizedBox(height: 12),
             Image.network(
-              'http://10.0.2.2:3000${question['image_url']}',
+              'https://mathkraft.onrender.com${question['image_url']}',
               errorBuilder: (_, __, ___) => const SizedBox(),
             ),
           ],

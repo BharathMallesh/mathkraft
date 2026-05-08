@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-const String _base = 'http://10.0.2.2:3000/api';
+const String _base = 'https://mathkraft.onrender.com/api';
 const _storage = FlutterSecureStorage();
 
 class ApiService {

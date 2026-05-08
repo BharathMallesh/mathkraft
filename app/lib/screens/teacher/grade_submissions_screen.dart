@@ -240,7 +240,7 @@ class _GradeDetailScreenState extends State<GradeDetailScreen> {
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
                                   child: Image.network(
-                                    'http://10.0.2.2:3000${answer['proof_photo_url']}',
+                                    'https://mathkraft.onrender.com${answer['proof_photo_url']}',
                                     height: 200,
                                     width: double.infinity,
                                     fit: BoxFit.cover,
