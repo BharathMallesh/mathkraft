@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
+const pool = require('./config/db');
 const authRoutes = require('./routes/auth');
 const examRoutes = require('./routes/exams');
 const questionRoutes = require('./routes/questions');
@@ -26,8 +27,33 @@ app.use('/api/hints', hintRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/pdf', pdfRoutes);
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'MathKraft API running', version: '1.0.0' });
+app.get('/api/health', async (req, res) => {
+  const start = Date.now();
+  try {
+    const result = await pool.query('SELECT NOW() AS db_time');
+    res.json({
+      status: 'ok',
+      version: '1.0.0',
+      uptime_seconds: Math.floor(process.uptime()),
+      db: {
+        status: 'connected',
+        time: result.rows[0].db_time,
+        latency_ms: Date.now() - start,
+      },
+      server_time: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(503).json({
+      status: 'degraded',
+      version: '1.0.0',
+      uptime_seconds: Math.floor(process.uptime()),
+      db: {
+        status: 'error',
+        error: err.message,
+      },
+      server_time: new Date().toISOString(),
+    });
+  }
 });
 
 app.use((err, req, res, next) => {
