@@ -30,6 +30,7 @@ const createTables = async () => {
         total_marks INTEGER DEFAULT 0,
         start_time TIMESTAMP,
         is_published BOOLEAN DEFAULT FALSE,
+        target_class VARCHAR(20) DEFAULT 'all',
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
@@ -137,6 +138,11 @@ const createTables = async () => {
         exam_id UUID REFERENCES exams(id),
         created_at TIMESTAMP DEFAULT NOW()
       );
+    `);
+
+    // Patch existing tables with any missing columns
+    await client.query(`
+      ALTER TABLE exams ADD COLUMN IF NOT EXISTS target_class VARCHAR(20) DEFAULT 'all';
     `);
 
     await client.query('COMMIT');
