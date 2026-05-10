@@ -9,8 +9,14 @@ const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Ensure uploads directory exists (required for Render.com / CI environments)
+const uploadsDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '../../uploads')),
+  destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => cb(null, `pdf-${Date.now()}-${file.originalname}`),
 });
 
@@ -154,7 +160,7 @@ router.get('/papers', authenticate, authorize('teacher', 'admin'), async (req, r
        FROM question_papers qp
        LEFT JOIN users u ON qp.teacher_id = u.id
        LEFT JOIN exams e ON qp.exam_id = e.id
-       ORDER BY qp.uploaded_at DESC`
+       ORDER BY qp.created_at DESC`
     );
     res.json(result.rows);
   } catch (err) {
