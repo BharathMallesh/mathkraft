@@ -67,14 +67,16 @@ Rules:
   * "mcq" — has (A)(B)(C)(D) options; JEE Advanced may have multiple correct answers
   * "numerical" — integer or decimal answer (0–9 range for JEE integer type)
   * "proof" — subjective / long answer
-- Convert ALL math to proper LaTeX:
-  * Fractions: \\frac{a}{b}
-  * Powers: x^{2}, x^{n}
-  * Square roots: \\sqrt{x}
-  * Greek: \\alpha, \\beta, \\theta, \\lambda, \\mu, \\epsilon, \\omega
-  * Vectors: \\vec{F}, \\hat{i}
-  * Chemistry: \\text{H}_2\\text{O}, \\text{CO}_2
-  * Infinity: \\infty
+- Convert ALL math to proper LaTeX and ALWAYS wrap math expressions in $...$ delimiters:
+  * Fractions: $\\frac{a}{b}$
+  * Powers: $x^{2}$, $x^{n}$
+  * Square roots: $\\sqrt{x}$
+  * Greek: $\\alpha$, $\\beta$, $\\theta$, $\\lambda$, $\\mu$, $\\epsilon$, $\\omega$
+  * Vectors: $\\vec{F}$, $\\hat{i}$
+  * Chemistry: $\\text{H}_2\\text{O}$, $\\text{CO}_2$
+  * Infinity: $\\infty$
+  * Mixed: "The value of $K_0$ is $\\frac{Qq}{8\\pi\\epsilon_0 R}$"
+  * NEVER write raw LaTeX without $ delimiters (e.g. write "$\\frac{a}{b}$" not "\\frac{a}{b}")
 - For diagrams/figures: describe them inside the latex_body as [Diagram: detailed description]
 - Mark correct answers if the answer key is visible in the PDF
 - Detect subject + topic (e.g. "Physics - Electrostatics", "Chemistry - Organic", "Mathematics - Calculus")

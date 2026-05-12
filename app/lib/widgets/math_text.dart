@@ -16,9 +16,14 @@ class MathText extends StatelessWidget {
     this.scrollable = true,
   });
 
+  // Detects raw LaTeX commands like \frac, \sqrt, \alpha, etc.
+  static final _latexCmdRegex = RegExp(r'\\(?:frac|sqrt|sum|int|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|vec|hat|bar|dot|text|left|right|infty|times|cdot|leq|geq|neq|pm|mp|div|partial|nabla|forall|exists|in|subset|cup|cap|limits)[^a-zA-Z]');
+
+  bool _hasRawLatex(String s) => _latexCmdRegex.hasMatch(s) || (s.contains('{') && s.contains('}') && s.contains('\\'));
+
   List<_Segment> _parse(String raw) {
     final segments = <_Segment>[];
-    // Match $...$ (inline math) or \(...\) or \[...\]
+    // Match $$...$$, $...$, \(...\), \[...\]
     final regex = RegExp(r'\$\$([^$]+)\$\$|\$([^$\n]+)\$|\\\((.+?)\\\)|\\\[(.+?)\\\]', dotAll: true);
     int cursor = 0;
 
@@ -35,11 +40,16 @@ class MathText extends StatelessWidget {
       segments.add(_Segment(raw.substring(cursor), false));
     }
 
-    // No delimiters found — treat as pure math only if it has no spaces
-    // (likely a short formula). Otherwise render as plain text.
-    if (segments.isEmpty) {
-      final hasSpaces = raw.contains(' ');
-      segments.add(_Segment(raw, !hasSpaces));
+    // No $ delimiters found — check for raw LaTeX commands (e.g. \frac, \sqrt)
+    // This handles cases where AI returns LaTeX without $ wrappers
+    if (segments.isEmpty || (segments.length == 1 && !segments[0].isMath)) {
+      if (_hasRawLatex(raw)) {
+        // Whole string contains LaTeX — render as math
+        return [_Segment(raw.trim(), true)];
+      }
+      if (segments.isEmpty) {
+        segments.add(_Segment(raw, false));
+      }
     }
 
     return segments;

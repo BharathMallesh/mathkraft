@@ -33,6 +33,7 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
   List<Map<String, dynamic>> _parsedQuestions = [];
   String _status = '';
   String? _currentPaperId;
+  String? _pagesDirectory;
 
   @override
   void initState() {
@@ -67,7 +68,7 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
 
     try {
       final token = await ApiService.getToken();
-      final req = http.MultipartRequest('POST', Uri.parse('https://mathkraft.onrender.com/api/pdf/parse'));
+      final req = http.MultipartRequest('POST', Uri.parse('http://10.0.2.2:3000/api/pdf/parse'));
       req.headers['Authorization'] = 'Bearer $token';
       req.files.add(await http.MultipartFile.fromPath('pdf', _selectedPdf!.path));
 
@@ -81,6 +82,7 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
         setState(() {
           _parsedQuestions = rawQuestions.map((q) => Map<String, dynamic>.from(q)).toList();
           _currentPaperId = body['paper_id']?.toString();
+          _pagesDirectory = body['pages_directory'];
           _status = 'Found ${_parsedQuestions.length} questions from ${body['pdf_pages']} pages';
           _uploading = false;
         });
@@ -127,6 +129,7 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
       backgroundColor: const Color(0xFF1E1E2E),
       builder: (_) => _QuestionEditor(
         question: _parsedQuestions[index],
+        pagesDirectory: _pagesDirectory,
         onSave: (updated) {
           setState(() => _parsedQuestions[index] = updated);
         },
@@ -274,6 +277,7 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
                   return _ParsedQuestionCard(
                     question: q,
                     index: i,
+                    pagesDirectory: _pagesDirectory,
                     onEdit: () => _editQuestion(i),
                     onRemove: () => _removeQuestion(i),
                   );
@@ -329,12 +333,14 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
 class _ParsedQuestionCard extends StatelessWidget {
   final Map<String, dynamic> question;
   final int index;
+  final String? pagesDirectory;
   final VoidCallback onEdit;
   final VoidCallback onRemove;
 
   const _ParsedQuestionCard({
     required this.question,
     required this.index,
+    this.pagesDirectory,
     required this.onEdit,
     required this.onRemove,
   });
@@ -406,6 +412,41 @@ class _ParsedQuestionCard extends StatelessWidget {
                 textStyle: const TextStyle(color: Colors.white, fontSize: 13),
               ),
             ),
+            if (question['cropped_image_url'] != null) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    'http://10.0.2.2:3000${question['cropped_image_url']}',
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const SizedBox.shrink(); // Hide if image fails to load
+                    },
+                  ),
+                ),
+              ),
+            ] else if (pagesDirectory != null && question['page_number'] != null) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    'http://10.0.2.2:3000/uploads/pages/$pagesDirectory/page_${question['page_number']}.png',
+                    height: 300,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const SizedBox.shrink(); // Hide if image fails to load
+                    },
+                  ),
+                ),
+              ),
+            ],
 
             // MCQ options preview
             if (type == 'mcq' && options != null && options.isNotEmpty) ...[
@@ -428,10 +469,9 @@ class _ParsedQuestionCard extends StatelessWidget {
                           const SizedBox(width: 6),
                           Text('(${opt['label']}) ', style: const TextStyle(color: Colors.white54, fontSize: 11)),
                           Expanded(
-                            child: Text(
-                              opt['text'] ?? '',
-                              style: const TextStyle(color: Colors.white70, fontSize: 11),
-                              overflow: TextOverflow.ellipsis,
+                            child: MathText(
+                              text: opt['text'] ?? '',
+                              textStyle: const TextStyle(color: Colors.white70, fontSize: 11),
                             ),
                           ),
                         ],
@@ -461,9 +501,10 @@ class _ParsedQuestionCard extends StatelessWidget {
 
 class _QuestionEditor extends StatefulWidget {
   final Map<String, dynamic> question;
+  final String? pagesDirectory;
   final void Function(Map<String, dynamic>) onSave;
 
-  const _QuestionEditor({required this.question, required this.onSave});
+  const _QuestionEditor({required this.question, this.pagesDirectory, required this.onSave});
 
   @override
   State<_QuestionEditor> createState() => _QuestionEditorState();
@@ -483,6 +524,10 @@ class _QuestionEditorState extends State<_QuestionEditor> {
     'Trigonometry', 'Calculus', 'Probability', 'Inequalities', 'General'
   ];
 
+  late int _pageNumber;
+  String? _croppedImageUrl;
+  bool _detectingDiagram = false;
+
   @override
   void initState() {
     super.initState();
@@ -491,6 +536,8 @@ class _QuestionEditorState extends State<_QuestionEditor> {
     _topic = widget.question['topic'] ?? 'General';
     _difficulty = widget.question['difficulty'] ?? 'medium';
     _marks = widget.question['marks'] ?? 3;
+    _pageNumber = widget.question['page_number'] ?? 1;
+    _croppedImageUrl = widget.question['cropped_image_url'];
     _correctValueCtrl = TextEditingController(text: widget.question['correct_value']?.toString() ?? '');
     _options = ((widget.question['options'] as List?) ?? [])
         .map((o) => Map<String, dynamic>.from(o))
@@ -512,10 +559,54 @@ class _QuestionEditorState extends State<_QuestionEditor> {
     updated['topic'] = _topic;
     updated['difficulty'] = _difficulty;
     updated['marks'] = _marks;
+    updated['page_number'] = _pageNumber;
+    updated['cropped_image_url'] = _croppedImageUrl;
     updated['options'] = _options;
     updated['correct_value'] = _correctValueCtrl.text.isEmpty ? null : num.tryParse(_correctValueCtrl.text);
     widget.onSave(updated);
     Navigator.pop(context);
+  }
+
+  Future<void> _redetectDiagram() async {
+    if (widget.pagesDirectory == null) return;
+    setState(() => _detectingDiagram = true);
+    try {
+      final token = await ApiService.getToken();
+      final response = await http.post(
+        Uri.parse('http://10.0.2.2:3000/api/pdf/detect-diagram'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode({
+          'pages_directory': widget.pagesDirectory,
+          'page_number': _pageNumber,
+          'question_number': widget.question['question_number'],
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['cropped_image_url'] != null) {
+          setState(() => _croppedImageUrl = data['cropped_image_url']);
+        } else {
+          setState(() => _croppedImageUrl = null);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('No diagram found on this page')),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _detectingDiagram = false);
+    }
+  }
+
+  void _removeImage() {
+    setState(() => _croppedImageUrl = null);
   }
 
   @override
@@ -602,6 +693,99 @@ class _QuestionEditorState extends State<_QuestionEditor> {
               Text('$_marks', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
               IconButton(onPressed: () => setState(() => _marks++), icon: const Icon(Icons.add_circle_outline, color: Color(0xFFFF6F00))),
             ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              const Text('Page Number:', style: TextStyle(color: Colors.white54)),
+              const SizedBox(width: 12),
+              IconButton(onPressed: _pageNumber > 1 ? () => setState(() => _pageNumber--) : null, icon: const Icon(Icons.remove_circle_outline)),
+              Text('$_pageNumber', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              IconButton(onPressed: () => setState(() => _pageNumber++), icon: const Icon(Icons.add_circle_outline, color: Color(0xFFFF6F00))),
+            ]),
+
+            // Diagram Image Preview
+            const SizedBox(height: 16),
+            const Text('Diagram Image', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 8),
+            if (_croppedImageUrl != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Image.network(
+                    'http://10.0.2.2:3000$_croppedImageUrl',
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.withOpacity(0.3)),
+                        ),
+                        child: const Center(child: Text('Image failed to load', style: TextStyle(color: Colors.red))),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _detectingDiagram ? null : _redetectDiagram,
+                    icon: _detectingDiagram
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.refresh, size: 16),
+                    label: Text(_detectingDiagram ? 'Detecting...' : 'Re-detect'),
+                    style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFFF6F00)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _removeImage,
+                  icon: const Icon(Icons.delete_outline, size: 16),
+                  label: const Text('Remove'),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                ),
+              ]),
+            ] else ...[
+              Container(
+                height: 80,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.image_not_supported, color: Colors.white24, size: 28),
+                      SizedBox(height: 4),
+                      Text('No diagram image', style: TextStyle(color: Colors.white24, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _detectingDiagram ? null : _redetectDiagram,
+                  icon: _detectingDiagram
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.auto_fix_high, size: 16),
+                  label: Text(_detectingDiagram ? 'Detecting...' : 'Detect Diagram on Page $_pageNumber'),
+                  style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFFF6F00)),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
 
             // MCQ options
             if (_type == 'mcq') ...[
