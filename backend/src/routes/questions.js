@@ -52,12 +52,9 @@ router.post('/', authenticate, authorize('teacher', 'admin'), upload.single('ima
 // Update question (latex_body, marks, topic, difficulty + MCQ options + numerical answer)
 router.put('/:id', authenticate, authorize('teacher', 'admin'), upload.single('image'), async (req, res) => {
   const { latex_body, marks, topic, difficulty, type, options, correct_value, tolerance, remove_image } = req.body;
-  const new_image_url = req.file ? `/uploads/${req.file.filename}` : null;
+  const new_image_url = req.file ? req.file.path : null; // Cloudinary returns full URL in req.file.path
   const shouldRemoveImage = remove_image === 'true' || remove_image === true;
-  
-  const fs = require('fs');
-  fs.appendFileSync('debug_put.log', JSON.stringify({ body: req.body, file: req.file, shouldRemoveImage }) + '\n');
-  
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
