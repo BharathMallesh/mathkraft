@@ -333,6 +333,10 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
               ],
             ),
           ),
+          if (_latexCtrl.text.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _InlinePreview(text: _latexCtrl.text),
+          ],
           const SizedBox(height: 16),
 
           // Optional image
@@ -464,40 +468,53 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: isCorrect ? Colors.green : Colors.white24),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                GestureDetector(
-                  onTap: () => setState(() {
-                    for (var o in _options) o['is_correct'] = false;
-                    opt['is_correct'] = true;
-                  }),
-                  child: Container(
-                    width: 48,
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        color: isCorrect ? Colors.green : Colors.white54,
-                        fontWeight: FontWeight.bold,
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => setState(() {
+                        for (var o in _options) o['is_correct'] = false;
+                        opt['is_correct'] = true;
+                      }),
+                      child: Container(
+                        width: 48,
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            color: isCorrect ? Colors.green : Colors.white54,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: ctrl,
-                    decoration: InputDecoration(
-                      hintText: 'Option $label (LaTeX)',
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: ctrl,
+                        decoration: InputDecoration(
+                          hintText: 'Option $label (LaTeX)',
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
                     ),
-                    onChanged: (_) => setState(() {}),
-                  ),
+                    if (isCorrect)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Icon(Icons.check_circle, color: Colors.green, size: 18),
+                      ),
+                  ],
                 ),
-                if (isCorrect)
-                  const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Icon(Icons.check_circle, color: Colors.green, size: 18),
+                if (ctrl.text.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                    child: MathText(
+                      text: ctrl.text,
+                      textStyle: const TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
                   ),
               ],
             ),
@@ -703,6 +720,35 @@ class _LatexShortcut extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
         ),
         child: Text(label, style: const TextStyle(color: Color(0xFFFF6F00), fontSize: 11, fontFamily: 'monospace')),
+      ),
+    );
+  }
+}
+
+// Live-rendered preview of LaTeX shown beneath an editable field, so the
+// teacher sees the typeset result while editing the raw $...$ source.
+class _InlinePreview extends StatelessWidget {
+  final String text;
+
+  const _InlinePreview({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF12121C),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Preview', style: TextStyle(color: Colors.white38, fontSize: 11)),
+          const SizedBox(height: 6),
+          MathText(text: text, textStyle: const TextStyle(color: Colors.white, fontSize: 15)),
+        ],
       ),
     );
   }
