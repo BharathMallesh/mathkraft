@@ -79,8 +79,10 @@ router.put('/:id', authenticate, authorize('teacher', 'admin'), upload.single('i
     const question = result.rows[0];
 
     if (type === 'mcq' && options) {
+      // multipart sends options as a JSON string; JSON requests as an array
+      const parsedOptions = typeof options === 'string' ? JSON.parse(options) : options;
       await client.query('DELETE FROM mcq_options WHERE question_id=$1', [req.params.id]);
-      for (const opt of options) {
+      for (const opt of parsedOptions) {
         await client.query(
           'INSERT INTO mcq_options (question_id, option_label, latex_option, is_correct) VALUES ($1,$2,$3,$4)',
           [req.params.id, opt.label, opt.text, opt.is_correct]

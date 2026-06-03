@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 const String _base = 'https://mathkraft.onrender.com/api';
@@ -77,7 +79,15 @@ class ApiService {
     final req = http.MultipartRequest('POST', Uri.parse('$_base$path'));
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
     req.fields.addAll(fields);
-    req.files.add(await http.MultipartFile.fromPath('proof_photo', file.path));
+    // Set Content-Type from the file extension; otherwise the part defaults to
+    // application/octet-stream, which Cloudinary storage rejects.
+    final mimeType = lookupMimeType(file.path) ?? 'image/jpeg';
+    final mimeParts = mimeType.split('/');
+    req.files.add(await http.MultipartFile.fromPath(
+      'proof_photo',
+      file.path,
+      contentType: MediaType(mimeParts[0], mimeParts[1]),
+    ));
     final streamed = await req.send();
     final res = await http.Response.fromStream(streamed);
     return jsonDecode(res.body);

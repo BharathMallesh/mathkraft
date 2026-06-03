@@ -3,8 +3,20 @@ import 'package:flutter/material.dart';
 import '../../widgets/math_text.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 import 'dart:convert';
 import '../../services/api_service.dart';
+
+/// Builds a multipart image part with an explicit Content-Type derived from
+/// the file extension. image_picker returns cache files that otherwise default
+/// to application/octet-stream, which Cloudinary storage rejects (500).
+Future<http.MultipartFile> _imagePart(String field, String path) async {
+  final mimeType = lookupMimeType(path) ?? 'image/jpeg';
+  final parts = mimeType.split('/');
+  return http.MultipartFile.fromPath(field, path,
+      contentType: MediaType(parts[0], parts[1]));
+}
 
 class AddQuestionScreen extends StatefulWidget {
   final String examId;
@@ -141,9 +153,18 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
             req.fields['correct_value'] = _answerCtrl.text;
             req.fields['tolerance'] = _toleranceCtrl.text;
           }
-          req.files.add(await http.MultipartFile.fromPath('image', _questionImage!.path));
+          req.files.add(await _imagePart('image', _questionImage!.path));
           final streamed = await req.send();
-          await http.Response.fromStream(streamed);
+          final res = await http.Response.fromStream(streamed);
+          if (res.statusCode >= 400) {
+            if (mounted) {
+              final body = jsonDecode(res.body);
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(body['error'] ?? 'Failed to update question')));
+              setState(() => _loading = false);
+            }
+            return;
+          }
         } else {
           final body = <String, dynamic>{
             'type': _type,
@@ -200,7 +221,7 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
         }
 
         if (_questionImage != null) {
-          req.files.add(await http.MultipartFile.fromPath('image', _questionImage!.path));
+          req.files.add(await _imagePart('image', _questionImage!.path));
         }
 
         final streamed = await req.send();
