@@ -7,6 +7,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { fromPath } = require('pdf2pic');
 const { Jimp } = require('jimp');
 const pool = require('../config/db');
+const { cloudinary, storage: cloudinaryStorage } = require('../config/cloudinary');
 const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
@@ -104,7 +105,15 @@ Return ONLY the JSON object. No markdown.`;
     image.crop({ x: xmin, y: ymin, w: cropW, h: cropH });
     await image.write(outputPath);
 
-    return `/uploads/pages/${pagesDirectory}/${outputFilename}`;
+    // Upload to Cloudinary
+    const cloudRes = await cloudinary.uploader.upload(outputPath, {
+      folder: 'mathkraft_diagrams',
+    });
+
+    // Delete local file asynchronously
+    fs.unlink(outputPath, () => {});
+
+    return cloudRes.secure_url;
   } catch (e) {
     console.warn(`Diagram detection failed for Q${questionNumber} page ${pageNumber}:`, e.message);
     return null;
@@ -129,7 +138,7 @@ const upload = multer({
 });
 
 const uploadImage = multer({
-  storage,
+  storage: cloudinaryStorage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true);
@@ -550,7 +559,7 @@ router.post('/upload-diagram', authenticate, authorize('teacher', 'admin'), uplo
     return res.status(400).json({ error: 'No image uploaded' });
   }
   try {
-    const fileUrl = `/uploads/${req.file.filename}`;
+    const fileUrl = req.file.path; // Cloudinary returns full URL here
     res.json({ cropped_image_url: fileUrl });
   } catch (err) {
     console.error('Manual diagram upload error:', err.message);

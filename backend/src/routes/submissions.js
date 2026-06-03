@@ -5,10 +5,8 @@ const pool = require('../config/db');
 const { authenticate, authorize } = require('../middleware/auth');
 const router = express.Router();
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '../../uploads')),
-  filename: (req, file, cb) => cb(null, `proof-${Date.now()}-${file.originalname}`),
-});
+const { storage } = require('../config/cloudinary');
+
 const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 // Student: start exam
@@ -34,7 +32,7 @@ router.post('/start', authenticate, authorize('student'), async (req, res) => {
 // Student: submit answer
 router.post('/answer', authenticate, authorize('student'), upload.single('proof_photo'), async (req, res) => {
   const { submission_id, question_id, selected_option, numerical_value } = req.body;
-  const proof_photo_url = req.file ? `/uploads/${req.file.filename}` : null;
+  const proof_photo_url = req.file ? req.file.path : null; // Cloudinary returns full URL in req.file.path
 
   try {
     const question = await pool.query('SELECT * FROM questions WHERE id=$1', [question_id]);

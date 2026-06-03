@@ -5,16 +5,14 @@ const pool = require('../config/db');
 const { authenticate, authorize } = require('../middleware/auth');
 const router = express.Router();
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '../../uploads')),
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
-});
+const { storage } = require('../config/cloudinary');
+
 const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Teacher: add question to exam
 router.post('/', authenticate, authorize('teacher', 'admin'), upload.single('image'), async (req, res) => {
   const { exam_id, question_number, type, latex_body, marks, partial_marks, topic, difficulty } = req.body;
-  const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+  const image_url = req.file ? req.file.path : null; // Cloudinary returns full URL in req.file.path
   try {
     const result = await pool.query(
       'INSERT INTO questions (exam_id, question_number, type, latex_body, image_url, marks, partial_marks, topic, difficulty) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
