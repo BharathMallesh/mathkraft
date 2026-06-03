@@ -4,9 +4,14 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 const String _base = 'https://mathkraft.onrender.com/api';
+const String _serverRoot = 'https://mathkraft.onrender.com'; // base without /api — for image URLs
 const _storage = FlutterSecureStorage();
 
 class ApiService {
+  /// The server root URL (no /api suffix). Use this to build image URLs:
+  ///   '${ApiService.serverRoot}${question["image_url"]}'
+  static const String serverRoot = _serverRoot;
+
   static Future<String?> getToken() => _storage.read(key: 'token');
   static Future<void> saveToken(String token) => _storage.write(key: 'token', value: token);
   static Future<void> clearToken() => _storage.delete(key: 'token');
@@ -25,11 +30,13 @@ class ApiService {
       headers: await _headers(),
       body: jsonEncode(body),
     );
+    if (res.statusCode >= 400) throw Exception(jsonDecode(res.body)['error'] ?? 'API Error');
     return jsonDecode(res.body);
   }
 
   static Future<dynamic> get(String path) async {
     final res = await http.get(Uri.parse('$_base$path'), headers: await _headers());
+    if (res.statusCode >= 400) throw Exception(jsonDecode(res.body)['error'] ?? 'API Error');
     return jsonDecode(res.body);
   }
 
@@ -39,6 +46,7 @@ class ApiService {
       headers: await _headers(),
       body: jsonEncode(body),
     );
+    if (res.statusCode >= 400) throw Exception(jsonDecode(res.body)['error'] ?? 'API Error');
     return jsonDecode(res.body);
   }
 
@@ -48,11 +56,13 @@ class ApiService {
       headers: await _headers(),
       body: jsonEncode(body),
     );
+    if (res.statusCode >= 400) throw Exception(jsonDecode(res.body)['error'] ?? 'API Error');
     return jsonDecode(res.body);
   }
 
   static Future<Map<String, dynamic>> delete(String path) async {
     final res = await http.delete(Uri.parse('$_base$path'), headers: await _headers());
+    if (res.statusCode >= 400) throw Exception(jsonDecode(res.body)['error'] ?? 'API Error');
     return jsonDecode(res.body);
   }
 

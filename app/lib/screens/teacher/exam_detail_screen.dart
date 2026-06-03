@@ -285,7 +285,9 @@ class _QuestionCard extends StatelessWidget {
                 child: Text(type.toUpperCase(), style: TextStyle(color: typeColors[type] ?? Colors.grey, fontSize: 10)),
               ),
               const SizedBox(width: 8),
-              Text(question['topic'] ?? '', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+              Flexible(
+                child: Text(question['topic'] ?? '', style: const TextStyle(color: Colors.white38, fontSize: 11), overflow: TextOverflow.ellipsis),
+              ),
               const Spacer(),
               Text('${question['marks']} pts', style: const TextStyle(color: Color(0xFFFF6F00), fontSize: 12)),
               const SizedBox(width: 8),
@@ -305,6 +307,21 @@ class _QuestionCard extends StatelessWidget {
             text: question['latex_body'] ?? '',
             textStyle: const TextStyle(color: Colors.white, fontSize: 14),
           ),
+          if (question['image_url'] != null && (question['image_url'] as String).isNotEmpty) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                '${ApiService.serverRoot}${question['image_url']}',
+                height: 200,
+                width: double.infinity,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          ],
           if (type == 'mcq' && question['options'] != null) ...[
             const SizedBox(height: 8),
             const Divider(color: Colors.white12),
@@ -320,10 +337,9 @@ class _QuestionCard extends StatelessWidget {
                   const SizedBox(width: 6),
                   Text('(${opt['option_label']}) ', style: const TextStyle(color: Colors.white54, fontSize: 12)),
                   Expanded(
-                    child: Text(
-                      opt['latex_option'] ?? '',
-                      style: const TextStyle(color: Colors.white70, fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
+                    child: MathText(
+                      text: opt['latex_option'] ?? '',
+                      textStyle: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ),
                 ],

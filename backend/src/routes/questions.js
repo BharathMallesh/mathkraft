@@ -52,16 +52,35 @@ router.post('/', authenticate, authorize('teacher', 'admin'), upload.single('ima
 });
 
 // Update question (latex_body, marks, topic, difficulty + MCQ options + numerical answer)
-router.put('/:id', authenticate, authorize('teacher', 'admin'), async (req, res) => {
-  const { latex_body, marks, topic, difficulty, type, options, correct_value, tolerance } = req.body;
+router.put('/:id', authenticate, authorize('teacher', 'admin'), upload.single('image'), async (req, res) => {
+  const { latex_body, marks, topic, difficulty, type, options, correct_value, tolerance, remove_image } = req.body;
+  const new_image_url = req.file ? `/uploads/${req.file.filename}` : null;
+  const shouldRemoveImage = remove_image === 'true' || remove_image === true;
+  
+  const fs = require('fs');
+  fs.appendFileSync('debug_put.log', JSON.stringify({ body: req.body, file: req.file, shouldRemoveImage }) + '\n');
+  
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const result = await client.query(
-      'UPDATE questions SET latex_body=$1, marks=$2, topic=$3, difficulty=$4 WHERE id=$5 RETURNING *',
-      [latex_body, marks, topic, difficulty, req.params.id]
-    );
+    let result;
+    if (new_image_url) {
+      result = await client.query(
+        'UPDATE questions SET latex_body=$1, marks=$2, topic=$3, difficulty=$4, image_url=$5 WHERE id=$6 RETURNING *',
+        [latex_body, marks, topic, difficulty, new_image_url, req.params.id]
+      );
+    } else if (shouldRemoveImage) {
+      result = await client.query(
+        'UPDATE questions SET latex_body=$1, marks=$2, topic=$3, difficulty=$4, image_url=NULL WHERE id=$5 RETURNING *',
+        [latex_body, marks, topic, difficulty, req.params.id]
+      );
+    } else {
+      result = await client.query(
+        'UPDATE questions SET latex_body=$1, marks=$2, topic=$3, difficulty=$4 WHERE id=$5 RETURNING *',
+        [latex_body, marks, topic, difficulty, req.params.id]
+      );
+    }
     const question = result.rows[0];
 
     if (type === 'mcq' && options) {

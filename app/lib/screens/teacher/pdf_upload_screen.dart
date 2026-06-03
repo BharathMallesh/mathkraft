@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import '../../widgets/math_text.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import '../../services/api_service.dart';
 
@@ -34,6 +35,7 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
   String _status = '';
   String? _currentPaperId;
   String? _pagesDirectory;
+  final _startQuestionCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -68,9 +70,12 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
 
     try {
       final token = await ApiService.getToken();
-      final req = http.MultipartRequest('POST', Uri.parse('http://10.0.2.2:3000/api/pdf/parse'));
+      final req = http.MultipartRequest('POST', Uri.parse('${ApiService.serverRoot}/api/pdf/parse'));
       req.headers['Authorization'] = 'Bearer $token';
       req.files.add(await http.MultipartFile.fromPath('pdf', _selectedPdf!.path));
+      if (_startQuestionCtrl.text.isNotEmpty) {
+        req.fields['start_question'] = _startQuestionCtrl.text;
+      }
 
       setState(() => _status = 'AI is parsing questions...');
       final streamed = await req.send();
@@ -81,6 +86,13 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
         final rawQuestions = body['questions'] as List;
         setState(() {
           _parsedQuestions = rawQuestions.map((q) => Map<String, dynamic>.from(q)).toList();
+          
+          // Enforce question numbering starting from the user's input
+          final startNum = int.tryParse(_startQuestionCtrl.text) ?? 1;
+          for (int i = 0; i < _parsedQuestions.length; i++) {
+            _parsedQuestions[i]['question_number'] = startNum + i;
+          }
+
           _currentPaperId = body['paper_id']?.toString();
           _pagesDirectory = body['pages_directory'];
           _status = 'Found ${_parsedQuestions.length} questions from ${body['pdf_pages']} pages';
@@ -141,8 +153,9 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
     setState(() {
       _parsedQuestions.removeAt(index);
       // Renumber
+      final startNum = int.tryParse(_startQuestionCtrl.text) ?? 1;
       for (int i = 0; i < _parsedQuestions.length; i++) {
-        _parsedQuestions[i]['question_number'] = i + 1;
+        _parsedQuestions[i]['question_number'] = startNum + i;
       }
     });
   }
@@ -210,6 +223,22 @@ class _PdfUploadScreenState extends State<PdfUploadScreen> {
                       const SizedBox(width: 8),
                       Flexible(child: Text(_pdfName ?? '', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: 200,
+                    child: TextField(
+                      controller: _startQuestionCtrl,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        labelText: 'Start Question Number (Optional)',
+                        labelStyle: const TextStyle(color: Colors.white54, fontSize: 12),
+                        enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.white24), borderRadius: BorderRadius.circular(8)),
+                        focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFFF6F00)), borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -376,7 +405,7 @@ class _ParsedQuestionCard extends StatelessWidget {
                       color: const Color(0xFF1A237E),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: Text('${index + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                    child: Text('${question['question_number'] ?? (index + 1)}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                   ),
                   const SizedBox(width: 8),
                   Container(
@@ -419,25 +448,8 @@ class _ParsedQuestionCard extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(
-                    'http://10.0.2.2:3000${question['cropped_image_url']}',
+                    '${ApiService.serverRoot}${question['cropped_image_url']}',
                     height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const SizedBox.shrink(); // Hide if image fails to load
-                    },
-                  ),
-                ),
-              ),
-            ] else if (pagesDirectory != null && question['page_number'] != null) ...[
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    'http://10.0.2.2:3000/uploads/pages/$pagesDirectory/page_${question['page_number']}.png',
-                    height: 300,
                     width: double.infinity,
                     fit: BoxFit.contain,
                     errorBuilder: (context, error, stackTrace) {
@@ -527,6 +539,8 @@ class _QuestionEditorState extends State<_QuestionEditor> {
   late int _pageNumber;
   String? _croppedImageUrl;
   bool _detectingDiagram = false;
+  bool _uploadingImage = false;
+  bool _imageRemoved = false;
 
   @override
   void initState() {
@@ -538,6 +552,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
     _marks = widget.question['marks'] ?? 3;
     _pageNumber = widget.question['page_number'] ?? 1;
     _croppedImageUrl = widget.question['cropped_image_url'];
+    _imageRemoved = widget.question['image_removed'] == true;
     _correctValueCtrl = TextEditingController(text: widget.question['correct_value']?.toString() ?? '');
     _options = ((widget.question['options'] as List?) ?? [])
         .map((o) => Map<String, dynamic>.from(o))
@@ -561,6 +576,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
     updated['marks'] = _marks;
     updated['page_number'] = _pageNumber;
     updated['cropped_image_url'] = _croppedImageUrl;
+    updated['image_removed'] = _imageRemoved;
     updated['options'] = _options;
     updated['correct_value'] = _correctValueCtrl.text.isEmpty ? null : num.tryParse(_correctValueCtrl.text);
     widget.onSave(updated);
@@ -573,7 +589,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
     try {
       final token = await ApiService.getToken();
       final response = await http.post(
-        Uri.parse('http://10.0.2.2:3000/api/pdf/detect-diagram'),
+        Uri.parse('${ApiService.serverRoot}/api/pdf/detect-diagram'),
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
         body: jsonEncode({
           'pages_directory': widget.pagesDirectory,
@@ -584,7 +600,10 @@ class _QuestionEditorState extends State<_QuestionEditor> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['cropped_image_url'] != null) {
-          setState(() => _croppedImageUrl = data['cropped_image_url']);
+          setState(() {
+            _croppedImageUrl = data['cropped_image_url'];
+            _imageRemoved = false;
+          });
         } else {
           setState(() => _croppedImageUrl = null);
           if (mounted) {
@@ -605,8 +624,70 @@ class _QuestionEditorState extends State<_QuestionEditor> {
     }
   }
 
+  // _imageRemoved is declared with other state fields above
+
   void _removeImage() {
-    setState(() => _croppedImageUrl = null);
+    setState(() {
+      _croppedImageUrl = null;
+      _imageRemoved = true;
+    });
+  }
+
+  Future<void> _uploadManualDiagram() async {
+    final picker = ImagePicker();
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E2E),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take a Photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
+    final pickedFile = await picker.pickImage(source: source);
+    if (pickedFile == null) return;
+
+    setState(() => _uploadingImage = true);
+
+    try {
+      final token = await ApiService.getToken();
+      final req = http.MultipartRequest('POST', Uri.parse('${ApiService.serverRoot}/api/pdf/upload-diagram'));
+      req.headers['Authorization'] = 'Bearer $token';
+      req.files.add(await http.MultipartFile.fromPath('image', pickedFile.path));
+
+      final streamed = await req.send();
+      final res = await http.Response.fromStream(streamed);
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        setState(() {
+          _croppedImageUrl = data['cropped_image_url'];
+          _imageRemoved = false;
+        });
+      } else {
+        final error = jsonDecode(res.body)['error'] ?? 'Upload failed';
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}')));
+    } finally {
+      if (mounted) setState(() => _uploadingImage = false);
+    }
   }
 
   @override
@@ -715,7 +796,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Image.network(
-                    'http://10.0.2.2:3000$_croppedImageUrl',
+                    '${ApiService.serverRoot}$_croppedImageUrl',
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.contain,
@@ -753,6 +834,18 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                   style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
                 ),
               ]),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _uploadingImage ? null : _uploadManualDiagram,
+                  icon: _uploadingImage
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.upload_file, size: 16),
+                  label: Text(_uploadingImage ? 'Uploading...' : 'Upload from Device'),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.blueAccent),
+                ),
+              ),
             ] else ...[
               Container(
                 height: 80,
@@ -782,6 +875,18 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                       : const Icon(Icons.auto_fix_high, size: 16),
                   label: Text(_detectingDiagram ? 'Detecting...' : 'Detect Diagram on Page $_pageNumber'),
                   style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFFF6F00)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _uploadingImage ? null : _uploadManualDiagram,
+                  icon: _uploadingImage
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.upload_file, size: 16),
+                  label: Text(_uploadingImage ? 'Uploading...' : 'Upload from Device'),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.blueAccent),
                 ),
               ),
             ],

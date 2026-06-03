@@ -30,7 +30,9 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
   int _marks = 3;
   bool _loading = false;
   bool _previewMode = false;
-  File? _questionImage;
+  File? _questionImage;       // newly picked local file
+  String? _existingImageUrl;  // already-saved URL from the server
+  bool _imageRemoved = false; // tracks if user explicitly removed the image
 
   // MCQ
   late final List<Map<String, dynamic>> _options;
@@ -70,6 +72,9 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
         _options = _defaultOptions();
       }
 
+      // Existing image
+      _existingImageUrl = q['image_url'] as String?;
+
       // Numerical answer
       final na = q['numerical_answer'] as Map?;
       _answerCtrl = TextEditingController(text: na?['correct_value']?.toString() ?? '');
@@ -92,7 +97,11 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (img != null) setState(() => _questionImage = File(img.path));
+    if (img != null) setState(() {
+      _questionImage = File(img.path);
+      _existingImageUrl = null; // replaced by new pick
+      _imageRemoved = false;    // new image replaces removal
+    });
   }
 
   Future<void> _saveQuestion() async {
@@ -110,24 +119,54 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
       if (_isEditMode) {
         // ── Edit mode: use PUT /questions/:id ──
         final questionId = widget.existingQuestion!['id'];
-        final body = <String, dynamic>{
-          'type': _type,
-          'latex_body': _latexCtrl.text,
-          'marks': _marks,
-          'topic': _topic,
-          'difficulty': _difficulty,
-        };
-        if (_type == 'mcq') {
-          body['options'] = _options.map((o) => {
-            'label': o['label'],
-            'text': (o['text'] as TextEditingController).text,
-            'is_correct': o['is_correct'],
-          }).toList();
-        } else if (_type == 'numerical') {
-          body['correct_value'] = double.tryParse(_answerCtrl.text) ?? 0;
-          body['tolerance'] = double.tryParse(_toleranceCtrl.text) ?? 0;
+        final token = await ApiService.getToken();
+
+        if (_questionImage != null) {
+          // New image picked — send as multipart so backend can store it
+          final req = http.MultipartRequest(
+              'PUT', Uri.parse('${ApiService.serverRoot}/api/questions/$questionId'));
+          req.headers['Authorization'] = 'Bearer $token';
+          req.fields['type'] = _type;
+          req.fields['latex_body'] = _latexCtrl.text;
+          req.fields['marks'] = _marks.toString();
+          req.fields['topic'] = _topic;
+          req.fields['difficulty'] = _difficulty;
+          if (_type == 'mcq') {
+            req.fields['options'] = jsonEncode(_options.map((o) => {
+              'label': o['label'],
+              'text': (o['text'] as TextEditingController).text,
+              'is_correct': o['is_correct'],
+            }).toList());
+          } else if (_type == 'numerical') {
+            req.fields['correct_value'] = _answerCtrl.text;
+            req.fields['tolerance'] = _toleranceCtrl.text;
+          }
+          req.files.add(await http.MultipartFile.fromPath('image', _questionImage!.path));
+          final streamed = await req.send();
+          await http.Response.fromStream(streamed);
+        } else {
+          final body = <String, dynamic>{
+            'type': _type,
+            'latex_body': _latexCtrl.text,
+            'marks': _marks,
+            'topic': _topic,
+            'difficulty': _difficulty,
+          };
+          if (_imageRemoved || (_questionImage == null && _existingImageUrl == null)) {
+            body['remove_image'] = true;
+          }
+          if (_type == 'mcq') {
+            body['options'] = _options.map((o) => {
+              'label': o['label'],
+              'text': (o['text'] as TextEditingController).text,
+              'is_correct': o['is_correct'],
+            }).toList();
+          } else if (_type == 'numerical') {
+            body['correct_value'] = double.tryParse(_answerCtrl.text) ?? 0;
+            body['tolerance'] = double.tryParse(_toleranceCtrl.text) ?? 0;
+          }
+          await ApiService.put('/questions/$questionId', body);
         }
-        await ApiService.put('/questions/$questionId', body);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Question updated!'),
@@ -138,7 +177,7 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
       } else {
         // ── Add mode: use multipart POST /questions ──
         final token = await ApiService.getToken();
-        final req = http.MultipartRequest('POST', Uri.parse('https://mathkraft.onrender.com/api/questions'));
+        final req = http.MultipartRequest('POST', Uri.parse('${ApiService.serverRoot}/api/questions'));
         req.headers['Authorization'] = 'Bearer $token';
 
         req.fields['exam_id'] = widget.examId;
@@ -287,18 +326,34 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
               ),
             ],
           ),
-          if (_questionImage != null) ...[
+          if (_questionImage != null || _existingImageUrl != null) ...[
             const SizedBox(height: 8),
             Stack(
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.file(_questionImage!, height: 150, width: double.infinity, fit: BoxFit.cover),
+                  child: _questionImage != null
+                      ? Image.file(_questionImage!, height: 150, width: double.infinity, fit: BoxFit.cover)
+                      : Image.network(
+                          '${ApiService.serverRoot}$_existingImageUrl',
+                          height: 150,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            height: 150,
+                            color: const Color(0xFF1E1E2E),
+                            child: const Center(child: Icon(Icons.broken_image, color: Colors.white38)),
+                          ),
+                        ),
                 ),
                 Positioned(
                   top: 4, right: 4,
                   child: GestureDetector(
-                    onTap: () => setState(() => _questionImage = null),
+                    onTap: () => setState(() {
+                      _questionImage = null;
+                      _existingImageUrl = null;
+                      _imageRemoved = true;
+                    }),
                     child: Container(
                       padding: const EdgeInsets.all(4),
                       decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
@@ -518,11 +573,18 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
                 _latexCtrl.text.isEmpty
                     ? const Text('(Question preview will appear here)', style: TextStyle(color: Colors.white38))
                     : MathText(text: _latexCtrl.text, textStyle: const TextStyle(color: Colors.white, fontSize: 16)),
-                if (_questionImage != null) ...[
+                if (_questionImage != null || _existingImageUrl != null) ...[
                   const SizedBox(height: 12),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.file(_questionImage!, height: 150, fit: BoxFit.cover),
+                    child: _questionImage != null
+                        ? Image.file(_questionImage!, height: 150, fit: BoxFit.cover)
+                        : Image.network(
+                            '${ApiService.serverRoot}$_existingImageUrl',
+                            height: 150,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const SizedBox(),
+                          ),
                   ),
                 ],
               ],

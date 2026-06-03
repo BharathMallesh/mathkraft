@@ -13,7 +13,7 @@ router.post('/', authenticate, authorize('student'), async (req, res) => {
     if (!question) return res.status(404).json({ error: 'Question not found' });
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const prompt = `You are a Socratic math tutor for Indian Olympiad students (IOQM/RMO/INMO level).
 

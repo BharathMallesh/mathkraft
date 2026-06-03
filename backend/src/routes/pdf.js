@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { fromPath } = require('pdf2pic');
+const { Jimp } = require('jimp');
 const pool = require('../config/db');
 const { authenticate, authorize } = require('../middleware/auth');
 
@@ -13,6 +15,100 @@ const router = express.Router();
 const uploadsDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Render all pages of a PDF to PNG images. Returns the directory name.
+async function renderPdfPages(pdfPath, numPages) {
+  const dirName = `pdf_${Date.now()}`;
+  const pagesDir = path.join(uploadsDir, 'pages', dirName);
+  fs.mkdirSync(pagesDir, { recursive: true });
+
+  const converter = fromPath(pdfPath, {
+    density: 150,
+    saveFilename: 'page',
+    savePath: pagesDir,
+    format: 'png',
+    width: 1240,
+    height: 1754,
+  });
+
+  const pagesToRender = Math.min(numPages || 30, 30);
+  for (let i = 1; i <= pagesToRender; i++) {
+    try {
+      await converter(i, { responseType: 'image' });
+    } catch (e) {
+      console.warn(`Page ${i} render failed:`, e.message);
+    }
+  }
+
+  return dirName;
+}
+
+// Ask Gemini to find a diagram bounding box in a page image, then crop it.
+// Returns the cropped image URL or null.
+async function detectAndCropDiagram(pagesDirectory, pageNumber, questionNumber) {
+  // pdf2pic saves files as "page.N.png" (dot separator, not underscore)
+  const imagePath = path.join(uploadsDir, 'pages', pagesDirectory, `page.${pageNumber}.png`);
+  if (!fs.existsSync(imagePath)) return null;
+
+  try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const prompt = `Analyze this exam question paper page image.
+Find the diagram, circuit, graph, or geometric figure that belongs to question number ${questionNumber}.
+Return the bounding box in normalized coordinates (0–1000) as JSON: { "box_2d": [ymin, xmin, ymax, xmax] }
+Rules:
+- Only return a box if there is a clear diagram/figure (circle, sphere, circuit, graph, geometric shape, etc.) visible on the page.
+- IMPORTANT: If the multiple choice options (A, B, C, D) for this question are images/graphs, include ALL the option images inside the bounding box.
+- The box must include the full diagram with all labels — do NOT cut off edges.
+- Do NOT include question text, unless the options are images. If options are images, do not include the question text, but do include the options A, B, C, D.
+- If the page has multiple diagrams, return the one for question ${questionNumber}.
+- If no diagram or figure is found on this page, return { "box_2d": null }.
+Return ONLY the JSON object. No markdown.`;
+
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [
+        { inlineData: { mimeType: 'image/png', data: fs.readFileSync(imagePath).toString('base64') } },
+        { text: prompt }
+      ]}],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
+    });
+
+    let responseText = result.response.text().trim()
+      .replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+    const data = JSON.parse(responseText);
+    if (!data || !data.box_2d) return null;
+
+    const box = data.box_2d;
+    const image = await Jimp.read(imagePath);
+    const w = image.bitmap.width;
+    const h = image.bitmap.height;
+
+    // Add 2% padding on each side so tight boxes don't clip edges
+    const PAD_X = Math.round(w * 0.02);
+    const PAD_Y = Math.round(h * 0.02);
+
+    const ymin = Math.max(0, Math.round(box[0] / 1000 * h) - PAD_Y);
+    const xmin = Math.max(0, Math.round(box[1] / 1000 * w) - PAD_X);
+    const ymax = Math.min(h, Math.round(box[2] / 1000 * h) + PAD_Y);
+    const xmax = Math.min(w, Math.round(box[3] / 1000 * w) + PAD_X);
+
+    const cropW = xmax - xmin;
+    const cropH = ymax - ymin;
+    if (cropW < 10 || cropH < 10) return null;
+
+    const outputFilename = `q_${questionNumber}_p${pageNumber}.png`;
+    const outputPath = path.join(uploadsDir, 'pages', pagesDirectory, outputFilename);
+    image.crop({ x: xmin, y: ymin, w: cropW, h: cropH });
+    await image.write(outputPath);
+
+    return `/uploads/pages/${pagesDirectory}/${outputFilename}`;
+  } catch (e) {
+    console.warn(`Diagram detection failed for Q${questionNumber} page ${pageNumber}:`, e.message);
+    return null;
+  }
 }
 
 const storage = multer.diskStorage({
@@ -29,6 +125,15 @@ const upload = multer({
                   file.originalname.toLowerCase().endsWith('.pdf');
     if (isPdf) cb(null, true);
     else cb(new Error('Only PDF files are allowed'));
+  },
+});
+
+const uploadImage = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
   },
 });
 
@@ -55,6 +160,11 @@ router.post('/parse', authenticate, authorize('teacher', 'admin'), upload.single
     console.log(`PDF: ${pdfData.numpages} pages, ${rawText.length} text chars extracted`);
     // Note: even if rawText is garbled/empty, AI vision reads the PDF directly below
 
+    const startQuestion = req.body.start_question ? parseInt(req.body.start_question) : null;
+    const startInstruction = startQuestion 
+      ? `- Start extracting from question number ${startQuestion}. Ignore any questions before it.` 
+      : '';
+
     // Step 2: Build prompt for JEE / Olympiad papers
     const prompt = `You are an expert at parsing Indian competitive exam question papers (JEE Advanced, JEE Main, NEET, Math Olympiad).
 
@@ -63,6 +173,7 @@ Carefully read the attached PDF and extract questions into a structured JSON arr
 Rules:
 - Read ALL pages of the PDF carefully. Questions may span multiple pages.
 - Identify each question by its number (1., 2., Q1, Q2, etc.)
+${startInstruction}
 - Question types:
   * "mcq" — has (A)(B)(C)(D) options; JEE Advanced may have multiple correct answers
   * "numerical" — integer or decimal answer (0–9 range for JEE integer type)
@@ -77,22 +188,25 @@ Rules:
   * Infinity: $\\infty$
   * Mixed: "The value of $K_0$ is $\\frac{Qq}{8\\pi\\epsilon_0 R}$"
   * NEVER write raw LaTeX without $ delimiters (e.g. write "$\\frac{a}{b}$" not "\\frac{a}{b}")
-- For diagrams/figures: describe them inside the latex_body as [Diagram: detailed description]
+- For diagrams/figures: set has_diagram=true and describe them briefly in latex_body as [Diagram: description].
+- IMPORTANT: If the question contains a data table, grid, or 'Match the Following' columns, DO NOT treat it as a diagram. Instead, format it natively as a LaTeX table using \\begin{array}{|c|c|} ... \\end{array}.
+- IMPORTANT: If the multiple choice options (A, B, C, D) themselves are images, graphs, or complex diagrams, set "has_diagram"=true, mention "[Diagram: Options]" in latex_body, and leave the option "text" fields EMPTY strings (""). The system will capture the options as an image.
 - Mark correct answers if the answer key is visible in the PDF
 - Detect subject + topic (e.g. "Physics - Electrostatics", "Chemistry - Organic", "Mathematics - Calculus")
 - Marks: MCQ=4, Numerical=3 unless specified in the paper
-- Return at most 15 questions
+- Return only the FIRST 5 questions found in the document. Do not attempt to parse the entire document.
 
 Return ONLY a valid JSON array. No markdown. No explanation. Just raw JSON:
 [
   {
     "question_number": 1,
-    "page_number": 1,
+    "page_number": 3,
     "type": "mcq",
     "latex_body": "full question text with proper LaTeX",
     "topic": "Physics - Electrostatics",
     "difficulty": "hard",
     "marks": 4,
+    "has_diagram": false,
     "options": [
       {"label": "A", "text": "option A in LaTeX", "is_correct": false},
       {"label": "B", "text": "option B in LaTeX", "is_correct": true},
@@ -133,13 +247,16 @@ Return ONLY a valid JSON array. No markdown. No explanation. Just raw JSON:
     } else {
       // ---- Gemini (default) — sends PDF as inline base64 with vision ----
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
       console.log('Sending PDF to Gemini vision...');
-      const result = await geminiModel.generateContent([
-        { inlineData: { mimeType: 'application/pdf', data: pdfBuffer.toString('base64') } },
-        prompt,
-      ]);
+      const result = await geminiModel.generateContent({
+        contents: [{ role: 'user', parts: [
+          { inlineData: { mimeType: 'application/pdf', data: pdfBuffer.toString('base64') } },
+          { text: prompt }
+        ]}],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
+      });
       responseText = result.response.text().trim();
       console.log('Gemini response (first 300):', responseText.substring(0, 300));
     }
@@ -154,13 +271,47 @@ Return ONLY a valid JSON array. No markdown. No explanation. Just raw JSON:
     } catch (parseErr) {
       console.error('JSON parse error:', parseErr.message);
       console.error('Raw response:', responseText.substring(0, 500));
+      fs.writeFileSync('last_ai_error.log', JSON.stringify({ error: parseErr.message, response: responseText }));
       return res.status(500).json({
-        error: 'AI could not structure the questions. Try again or add questions manually.',
+        error: `AI Error: ${parseErr.message}. Output may be too long. Try parsing fewer questions at a time.`,
         ai_response_preview: responseText.substring(0, 300),
       });
     }
 
-    // Step 5: Save paper record to DB
+    // Step 5: Render PDF pages to images for diagram cropping
+    let pagesDirectory = null;
+    try {
+      console.log(`Rendering ${pdfData.numpages} PDF pages to images...`);
+      pagesDirectory = await renderPdfPages(req.file.path, pdfData.numpages);
+      console.log(`Pages rendered to: ${pagesDirectory}`);
+    } catch (renderErr) {
+      console.warn('PDF page rendering failed (diagrams will not be available):', renderErr.message);
+    }
+
+    // Step 6: Auto-detect and crop diagrams for ALL questions.
+    // Check both the question page and the next page (diagrams may spill across page breaks).
+    // We try every question (not just has_diagram=true) because AI sometimes misses the flag.
+    if (pagesDirectory) {
+      console.log('Auto-detecting diagrams for all questions...');
+      for (const q of questions) {
+        if (!q.page_number) continue;
+        const pagesToCheck = [q.page_number, q.page_number + 1];
+        for (const pg of pagesToCheck) {
+          const croppedUrl = await detectAndCropDiagram(pagesDirectory, pg, q.question_number);
+          if (croppedUrl) {
+            q.cropped_image_url = croppedUrl;
+            q.has_diagram = true;
+            console.log(`Q${q.question_number}: diagram cropped from page ${pg} → ${croppedUrl}`);
+            break;
+          }
+        }
+        if (!q.cropped_image_url) {
+          console.log(`Q${q.question_number}: no diagram found`);
+        }
+      }
+    }
+
+    // Step 7: Save paper record to DB
     const fileSizeKb = Math.round(req.file.size / 1024);
     const fileUrl = `/uploads/${req.file.filename}`;
     const paperTitle = req.file.originalname
@@ -180,6 +331,7 @@ Return ONLY a valid JSON array. No markdown. No explanation. Just raw JSON:
       paper_id: paperResult.rows[0].id,
       total_questions: questions.length,
       pdf_pages: pdfData.numpages,
+      pages_directory: pagesDirectory,
       questions,
     });
 
@@ -241,7 +393,7 @@ router.post('/papers/:id/reparse', authenticate, authorize('teacher', 'admin'), 
     }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const prompt = `You are an expert at parsing Indian Math Olympiad question papers.
 Parse this text into a structured JSON array of questions with LaTeX formatting.
@@ -255,7 +407,7 @@ Format: [{"question_number":1,"type":"mcq|numerical|proof","latex_body":"...","t
 
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: 8192, temperature: 0.1 },
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
     });
 
     let responseText = result.response.text().trim()
@@ -373,77 +525,35 @@ router.post('/detect-diagram', authenticate, authorize('teacher', 'admin'), asyn
     return res.status(400).json({ error: 'pages_directory and page_number are required' });
   }
 
-  const path = require('path');
-  const fs = require('fs');
-  const imagePath = path.join(__dirname, '../../uploads/pages', pages_directory, `page_${page_number}.png`);
-  
+  // pdf2pic saves as "page.N.png" (dot separator)
+  const imagePath = path.join(uploadsDir, 'pages', pages_directory, `page.${page_number}.png`);
   if (!fs.existsSync(imagePath)) {
     return res.status(404).json({ error: 'Page image not found' });
   }
 
   try {
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-    const prompt = `You are an expert at document layout analysis. 
-Analyze the provided image of a document page and find the main diagram, graph, circuit, or geometric figure.
-Return the bounding box of the diagram in normalized coordinates (0-1000) as a JSON object with a 'box_2d' field.
-Format: { "box_2d": [ymin, xmin, ymax, xmax] }
-If there are multiple diagrams, return the box for the one that looks like a main problem diagram.
-If no diagram or figure is found on the page, return { "box_2d": null }.
-Return ONLY the JSON object. No markdown.`;
-
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          mimeType: 'image/png',
-          data: fs.readFileSync(imagePath).toString('base64')
-        }
-      },
-      prompt
-    ]);
-
-    let responseText = result.response.text().trim();
-    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-
-    const data = JSON.parse(responseText);
-    
-    if (data && data.box_2d) {
-      // Crop the image
-      const { Jimp } = require('jimp');
-      const box = data.box_2d;
-      const qNum = question_number || `p${page_number}`;
-      const outputFilename = `q_${qNum}.png`;
-      const outputPath = path.join(__dirname, '../../uploads/pages', pages_directory, outputFilename);
-
-      const image = await Jimp.read(imagePath);
-      const width = image.bitmap.width;
-      const height = image.bitmap.height;
-
-      const ymin = Math.round(box[0] / 1000 * height);
-      const xmin = Math.round(box[1] / 1000 * width);
-      const ymax = Math.round(box[2] / 1000 * height);
-      const xmax = Math.round(box[3] / 1000 * width);
-
-      const cropWidth = xmax - xmin;
-      const cropHeight = ymax - ymin;
-
-      if (cropWidth > 10 && cropHeight > 10) {
-        image.crop({ x: xmin, y: ymin, w: cropWidth, h: cropHeight });
-        await image.write(outputPath);
-        const croppedUrl = `/uploads/pages/${pages_directory}/${outputFilename}`;
-        console.log(`Cropped diagram saved: ${croppedUrl}`);
-        res.json({ box_2d: data.box_2d, cropped_image_url: croppedUrl });
-      } else {
-        res.json({ box_2d: data.box_2d, cropped_image_url: null });
-      }
+    const croppedUrl = await detectAndCropDiagram(pages_directory, page_number, question_number);
+    if (croppedUrl) {
+      res.json({ cropped_image_url: croppedUrl });
     } else {
-      res.json({ box_2d: null, cropped_image_url: null });
+      res.json({ cropped_image_url: null });
     }
-
   } catch (err) {
     console.error('Diagram detection error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upload a manual diagram image for a question
+router.post('/upload-diagram', authenticate, authorize('teacher', 'admin'), uploadImage.single('image'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No image uploaded' });
+  }
+  try {
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ cropped_image_url: fileUrl });
+  } catch (err) {
+    console.error('Manual diagram upload error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

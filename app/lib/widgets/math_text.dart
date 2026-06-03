@@ -71,19 +71,19 @@ class MathText extends StatelessWidget {
             ? SingleChildScrollView(scrollDirection: Axis.horizontal, child: mathWidget)
             : mathWidget;
       } else {
-        return Text(seg.content.trim(), style: style, softWrap: true);
+        return Text(seg.content, style: style, softWrap: true);
       }
     }).toList();
 
     if (widgets.length == 1) return widgets.first;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: widgets.map((w) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: w,
-      )).toList(),
+    // Use Wrap so text and math segments flow inline (left-to-right),
+    // wrapping naturally — instead of stacking vertically in a Column.
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      runSpacing: 4,
+      spacing: 2,
+      children: widgets,
     );
   }
 }
