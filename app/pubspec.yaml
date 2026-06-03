@@ -35,6 +35,8 @@ dependencies:
 
   # HTTP & State
   http: ^1.2.1
+  http_parser: ^4.0.2
+  mime: ^1.0.5
   provider: ^6.1.2
   shared_preferences: ^2.2.3
 

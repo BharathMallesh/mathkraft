@@ -6,6 +6,8 @@ import '../../widgets/math_text.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 import '../../services/api_service.dart';
 
 class PdfUploadScreen extends StatefulWidget {
@@ -668,7 +670,16 @@ class _QuestionEditorState extends State<_QuestionEditor> {
       final token = await ApiService.getToken();
       final req = http.MultipartRequest('POST', Uri.parse('${ApiService.serverRoot}/api/pdf/upload-diagram'));
       req.headers['Authorization'] = 'Bearer $token';
-      req.files.add(await http.MultipartFile.fromPath('image', pickedFile.path));
+      // Cloudinary storage infers the upload format from the part's Content-Type.
+      // image_picker returns cache files whose MultipartFile defaults to
+      // application/octet-stream, which Cloudinary rejects (500). Set it explicitly.
+      final mimeType = lookupMimeType(pickedFile.path) ?? 'image/jpeg';
+      final mimeParts = mimeType.split('/');
+      req.files.add(await http.MultipartFile.fromPath(
+        'image',
+        pickedFile.path,
+        contentType: MediaType(mimeParts[0], mimeParts[1]),
+      ));
 
       final streamed = await req.send();
       final res = await http.Response.fromStream(streamed);
@@ -796,7 +807,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Image.network(
-                    ApiService.getImageUrl($_croppedImageUrl!),
+                    ApiService.getImageUrl(_croppedImageUrl!),
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.contain,
