@@ -264,7 +264,7 @@ class _QuestionBody extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Image.network(
-                '${ApiService.serverRoot}${question["image_url"]}',
+                ApiService.getImageUrl(question["image_url"]),
                 width: double.infinity,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const SizedBox(),

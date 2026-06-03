@@ -312,7 +312,7 @@ class _QuestionCard extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Image.network(
-                '${ApiService.serverRoot}${question['image_url']}',
+                ApiService.getImageUrl(question['image_url']),
                 height: 200,
                 width: double.infinity,
                 fit: BoxFit.contain,

@@ -448,7 +448,7 @@ class _ParsedQuestionCard extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(
-                    '${ApiService.serverRoot}${question['cropped_image_url']}',
+                    ApiService.getImageUrl(question['cropped_image_url']),
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.contain,
@@ -796,7 +796,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Image.network(
-                    '${ApiService.serverRoot}$_croppedImageUrl',
+                    ApiService.getImageUrl($_croppedImageUrl!),
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.contain,

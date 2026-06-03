@@ -9,8 +9,14 @@ const _storage = FlutterSecureStorage();
 
 class ApiService {
   /// The server root URL (no /api suffix). Use this to build image URLs:
-  ///   '${ApiService.serverRoot}${question["image_url"]}'
   static const String serverRoot = _serverRoot;
+
+  /// Helper to get the correct absolute image URL regardless of Cloudinary or local storage
+  static String getImageUrl(String path) {
+    if (path.isEmpty) return '';
+    if (path.startsWith('http')) return path;
+    return '$_serverRoot$path';
+  }
 
   static Future<String?> getToken() => _storage.read(key: 'token');
   static Future<void> saveToken(String token) => _storage.write(key: 'token', value: token);

@@ -335,7 +335,7 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
                   child: _questionImage != null
                       ? Image.file(_questionImage!, height: 150, width: double.infinity, fit: BoxFit.cover)
                       : Image.network(
-                          '${ApiService.serverRoot}$_existingImageUrl',
+                          ApiService.getImageUrl($_existingImageUrl!),
                           height: 150,
                           width: double.infinity,
                           fit: BoxFit.cover,
@@ -580,7 +580,7 @@ class _AddQuestionScreenState extends State<AddQuestionScreen> {
                     child: _questionImage != null
                         ? Image.file(_questionImage!, height: 150, fit: BoxFit.cover)
                         : Image.network(
-                            '${ApiService.serverRoot}$_existingImageUrl',
+                            ApiService.getImageUrl($_existingImageUrl!),
                             height: 150,
                             fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => const SizedBox(),
